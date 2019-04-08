@@ -16,6 +16,12 @@ Citation:
 + Python3
 + PyTorch >= 0.4.0
 
+## Terminology
+
+_Scales_ are deduced from `grFactor`, which is a `-` separated string contains the growth rate factors of channels for each scale.
+The total number of scales is the number of factors.
+This implementation assumes that the first growth rate is `1`.
+
 ## Network Configurations
 
 #### Train an MSDNet (block=7) on CIFAR-100 for *anytime prediction*: 

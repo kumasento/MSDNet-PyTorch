@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-
 from __future__ import print_function
 from __future__ import division
 from __future__ import absolute_import
 
+import torch.optim
+import torch.backends.cudnn as cudnn
+import torch.nn.parallel
+import torch.nn as nn
+import torch
 import os
 import sys
 import math
@@ -17,7 +21,7 @@ import models
 
 args = arg_parser.parse_args()
 if args.gpu:
-  os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
 args.grFactor = list(map(int, args.grFactor.split('-')))
 args.bnFactor = list(map(int, args.bnFactor.split('-')))
@@ -35,13 +39,9 @@ elif args.data == 'cifar100':
 else:
     args.num_classes = 1000
 
-import torch
-import torch.nn as nn
-import torch.nn.parallel
-import torch.backends.cudnn as cudnn
-import torch.optim
 
 torch.manual_seed(args.seed)
+
 
 def main():
 
@@ -96,7 +96,8 @@ def main():
 
     for epoch in range(args.start_epoch, args.epochs):
 
-        train_loss, train_prec1, train_prec5, lr = train(train_loader, model, criterion, optimizer, epoch)
+        train_loss, train_prec1, train_prec5, lr = train(
+            train_loader, model, criterion, optimizer, epoch)
 
         val_loss, val_prec1, val_prec5 = validate(val_loader, model, criterion)
 
@@ -120,6 +121,7 @@ def main():
         }, args, is_best, model_filename, scores)
 
     print('Best val_prec1: {:.4f} at epoch {}'.format(best_prec1, best_epoch))
+
 
 def train(train_loader, model, criterion, optimizer, epoch):
     batch_time = AverageMeter()
@@ -181,11 +183,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Loss {loss.val:.4f}\t'
                   'Acc@1 {top1.val:.4f}\t'
                   'Acc@5 {top5.val:.4f}'.format(
-                    epoch, i + 1, len(train_loader),
-                    batch_time=batch_time, data_time=data_time,
-                    loss=losses, top1=top1[-1], top5=top5[-1]))
+                      epoch, i + 1, len(train_loader),
+                      batch_time=batch_time, data_time=data_time,
+                      loss=losses, top1=top1[-1], top5=top5[-1]))
 
     return losses.avg, top1[-1].avg, top5[-1].avg, running_lr
+
 
 def validate(val_loader, model, criterion):
     batch_time = AverageMeter()
@@ -235,13 +238,15 @@ def validate(val_loader, model, criterion):
                       'Loss {loss.val:.4f}\t'
                       'Acc@1 {top1.val:.4f}\t'
                       'Acc@5 {top5.val:.4f}'.format(
-                        i + 1, len(val_loader),
-                        batch_time=batch_time, data_time=data_time,
-                        loss=losses, top1=top1[-1], top5=top5[-1]))
+                          i + 1, len(val_loader),
+                          batch_time=batch_time, data_time=data_time,
+                          loss=losses, top1=top1[-1], top5=top5[-1]))
     for j in range(args.nBlocks):
-        print(' * prec@1 {top1.avg:.3f} prec@5 {top5.avg:.3f}'.format(top1=top1[j], top5=top5[j]))
+        print(
+            ' * prec@1 {top1.avg:.3f} prec@5 {top5.avg:.3f}'.format(top1=top1[j], top5=top5[j]))
     # print(' * prec@1 {top1.avg:.3f} prec@5 {top5.avg:.3f}'.format(top1=top1[-1], top5=top5[-1]))
     return losses.avg, top1[-1].avg, top5[-1].avg
+
 
 def save_checkpoint(state, args, is_best, filename, result):
     print(args)
@@ -267,6 +272,7 @@ def save_checkpoint(state, args, is_best, filename, result):
     print("=> saved checkpoint '{}'".format(model_filename))
     return
 
+
 def load_checkpoint(args):
     model_dir = os.path.join(args.save, 'save_models')
     latest_filename = os.path.join(model_dir, 'latest.txt')
@@ -279,6 +285,7 @@ def load_checkpoint(args):
     state = torch.load(model_filename)
     print("=> loaded checkpoint '{}'".format(model_filename))
     return state
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -298,6 +305,7 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
+
 def accuracy(output, target, topk=(1,)):
     """Computes the precor@k for the specified values of k"""
     maxk = max(topk)
@@ -312,6 +320,7 @@ def accuracy(output, target, topk=(1,)):
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
+
 
 def adjust_learning_rate(optimizer, epoch, args, batch=None,
                          nBatch=None, method='multistep'):
@@ -331,6 +340,7 @@ def adjust_learning_rate(optimizer, epoch, args, batch=None,
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr
+
 
 if __name__ == '__main__':
     main()

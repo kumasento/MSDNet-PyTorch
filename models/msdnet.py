@@ -3,15 +3,20 @@ import torch
 import math
 import pdb
 
+
 class ConvBasic(nn.Module):
-    def __init__(self, nIn, nOut, kernel=3, stride=1,
+    """ A [conv2d] - [bn] - [relu] block.
+    NOTE: bias is by default False
+    """
+
+    def __init__(self, nIn, nOut, kernel_size=3, stride=1,
                  padding=1):
         super(ConvBasic, self).__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(nIn, nOut, kernel_size=kernel, stride=stride,
+            nn.Conv2d(nIn, nOut, kernel_size=kernel_size, stride=stride,
                       padding=padding, bias=False),
             nn.BatchNorm2d(nOut),
-            nn.ReLU(True)
+            nn.ReLU(inplace=True)
         )
 
     def forward(self, x):
@@ -21,13 +26,20 @@ class ConvBasic(nn.Module):
 class ConvBN(nn.Module):
     def __init__(self, nIn, nOut, type: str, bottleneck,
                  bnWidth):
-        """
-        a basic conv in MSDNet, two type
-        :param nIn:
-        :param nOut:
-        :param type: normal or down
-        :param bottleneck: use bottlenet or not
-        :param bnWidth: bottleneck factor
+        """ A basic conv module in MSDNet.
+
+        If bottleneck is True:
+           nIn -> [conv2d] - nInner -> [conv2d] -> nOut 
+        else:
+           nIn -> [conv2d] -> nOut 
+
+        Args:
+            nIn(int): number of input channels
+            nOut(int): number of output channels
+            type(str): type of this module, can only take "normal" or "down"
+                differs only in stride value - 1 (normal), 2 (down)
+            bottleneck(bool): use bottlenet or not
+            bnWidth(int): bottleneck factor
         """
         super(ConvBN, self).__init__()
         layer = []
@@ -37,7 +49,7 @@ class ConvBN(nn.Module):
             layer.append(nn.Conv2d(
                 nIn, nInner, kernel_size=1, stride=1, padding=0, bias=False))
             layer.append(nn.BatchNorm2d(nInner))
-            layer.append(nn.ReLU(True))
+            layer.append(nn.ReLU(inplace=True))
 
         if type == 'normal':
             layer.append(nn.Conv2d(nInner, nOut, kernel_size=3,
@@ -46,7 +58,8 @@ class ConvBN(nn.Module):
             layer.append(nn.Conv2d(nInner, nOut, kernel_size=3,
                                    stride=2, padding=1, bias=False))
         else:
-            raise ValueError
+            raise ValueError(
+                'type should only take "normal" or "down", got: {}'.format(type))
 
         layer.append(nn.BatchNorm2d(nOut))
         layer.append(nn.ReLU(True))
@@ -54,17 +67,18 @@ class ConvBN(nn.Module):
         self.net = nn.Sequential(*layer)
 
     def forward(self, x):
-
         return self.net(x)
 
 
 class ConvDownNormal(nn.Module):
+    """ A downsampling conv followed by a normal conv """
+
     def __init__(self, nIn1, nIn2, nOut, bottleneck, bnWidth1, bnWidth2):
         super(ConvDownNormal, self).__init__()
         self.conv_down = ConvBN(nIn1, nOut // 2, 'down',
                                 bottleneck, bnWidth1)
         self.conv_normal = ConvBN(nIn2, nOut // 2, 'normal',
-                                   bottleneck, bnWidth2)
+                                  bottleneck, bnWidth2)
 
     def forward(self, x):
         res = [x[1],
@@ -74,10 +88,12 @@ class ConvDownNormal(nn.Module):
 
 
 class ConvNormal(nn.Module):
+    """ A normal conv """
+
     def __init__(self, nIn, nOut, bottleneck, bnWidth):
         super(ConvNormal, self).__init__()
         self.conv_normal = ConvBN(nIn, nOut, 'normal',
-                                   bottleneck, bnWidth)
+                                  bottleneck, bnWidth)
 
     def forward(self, x):
         if not isinstance(x, list):
@@ -87,29 +103,62 @@ class ConvNormal(nn.Module):
 
         return torch.cat(res, dim=1)
 
-class MSDNFirstLayer(nn.Module):
-    def __init__(self, nIn, nOut, args):
-        super(MSDNFirstLayer, self).__init__()
+
+class MSDFirstLayer(nn.Module):
+    """ First layer of the whole network.
+
+    Design references:
+        - Paper Appendix A.
+        - Repo [MSDNet](https://github.com/gaohuang/MSDNet/blob/0589d1768b33cc41aa49aa77d4a52c0bc62bd54c/models/MSDNet_Layer.lua#L59)
+    """
+
+    def __init__(self, nIn, nOut, grFactor, dataset_name='cifar10'):
+        """ CTOR.
+
+        Args:
+            nIn(int): number of input channels
+            nOut(int): number of output channels
+            grFactor(list): list of integers, indicating the
+                growth rate for each scale
+            dataset_name(str): name of the dataset
+        """
+        super(MSDFirstLayer, self).__init__()
+
+        # Submodules
         self.layers = nn.ModuleList()
-        if args.data.startswith('cifar'):
-            self.layers.append(ConvBasic(nIn, nOut * args.grFactor[0],
-                                         kernel=3, stride=1, padding=1))
-        elif args.data == 'ImageNet':
-            conv = nn.Sequential(
-                    nn.Conv2d(nIn, nOut * args.grFactor[0], 7, 2, 3),
-                    nn.BatchNorm2d(nOut * args.grFactor[0]),
-                    nn.ReLU(inplace=True),
-                    nn.MaxPool2d(3, 2, 1))
-            self.layers.append(conv)
 
-        nIn = nOut * args.grFactor[0]
+        # NOTE: The first growth rate should be 1.
+        assert len(grFactor) >= 1 and grFactor[0] == 1
 
-        for i in range(1, args.nScales):
-            self.layers.append(ConvBasic(nIn, nOut * args.grFactor[i],
-                                         kernel=3, stride=2, padding=1))
-            nIn = nOut * args.grFactor[i]
+        # The very first Convolution is constructed wrt the dataset name.
+        # See the references for mor information.
+        if dataset_name.startswith('cifar'):
+            self.layers.append(ConvBasic(nIn, nOut * grFactor[0],
+                                         kernel_size=3, stride=1, padding=1))
+        elif dataset_name.lower() == 'imagenet':
+            self.layers.append(nn.Sequential(
+                ConvBasic(nIn, nOut * grFactor[0],
+                          kernel_size=7, stride=2, padding=3),
+                nn.MaxPool2d(3, stride=2, padding=1)))
+
+        # initialise the rest of the sub convolution layers within
+        # the first layer.
+        nIn = nOut * grFactor[0]
+        for factor in grFactor[1:]:
+            self.layers.append(ConvBasic(nIn, nOut * factor,
+                                         kernel_size=3, stride=2, padding=1))
+            nIn = nOut * factor
 
     def forward(self, x):
+        """ Each submodule takes its PREVIOUS module's output.
+            The first module takes in x.
+            Each submodule's result is stored as an element in a list.
+
+        Args:
+            x(torch.Tensor)
+        Returns:
+            A list of torch.Tensor
+        """
         res = []
         for i in range(len(self.layers)):
             x = self.layers[i](x)
@@ -117,9 +166,11 @@ class MSDNFirstLayer(nn.Module):
 
         return res
 
-class MSDNLayer(nn.Module):
+
+class MSDLayer(nn.Module):
     def __init__(self, nIn, nOut, args, inScales=None, outScales=None):
-        super(MSDNLayer, self).__init__()
+
+        super(MSDLayer, self).__init__()
         self.nIn = nIn
         self.nOut = nOut
         self.inScales = inScales if inScales is not None else args.nScales
@@ -176,6 +227,7 @@ class ParallelModule(nn.Module):
     network: N module
     output: N tensor
     """
+
     def __init__(self, parallel_modules):
         super(ParallelModule, self).__init__()
         self.m = nn.ModuleList(parallel_modules)
@@ -199,6 +251,7 @@ class ClassifierModule(nn.Module):
         res = res.view(res.size(0), -1)
         return self.linear(res)
 
+
 class MSDNet(nn.Module):
     def __init__(self, args):
         super(MSDNet, self).__init__()
@@ -207,11 +260,11 @@ class MSDNet(nn.Module):
         self.nBlocks = args.nBlocks
         self.steps = [args.base]
         self.args = args
-        
+
         n_layers_all, n_layer_curr = args.base, 0
         for i in range(1, self.nBlocks):
             self.steps.append(args.step if args.stepmode == 'even'
-                             else args.step * i + 1)
+                              else args.step * i + 1)
             n_layers_all += self.steps[-1]
 
         print("building network of steps: ")
@@ -265,8 +318,8 @@ class MSDNet(nn.Module):
 
     def _build_block(self, nIn, args, step, n_layer_all, n_layer_curr):
 
-        layers = [MSDNFirstLayer(3, nIn, args)] \
-            if n_layer_curr == 0 else []
+        layers = ([MSDFirstLayer(3, nIn, args.grFactor, dataset_name=args.data)]
+                  if n_layer_curr == 0 else [])
         for i in range(step):
             n_layer_curr += 1
             inScales = args.nScales
@@ -276,13 +329,17 @@ class MSDNet(nn.Module):
                 outScales = min(args.nScales, n_layer_all - n_layer_curr + 1)
             elif args.prune == 'max':
                 interval = math.ceil(1.0 * n_layer_all / args.nScales)
-                inScales = args.nScales - math.floor(1.0 * (max(0, n_layer_curr - 2)) / interval)
-                outScales = args.nScales - math.floor(1.0 * (n_layer_curr - 1) / interval)
+                inScales = args.nScales - \
+                    math.floor(1.0 * (max(0, n_layer_curr - 2)) / interval)
+                outScales = args.nScales - \
+                    math.floor(1.0 * (n_layer_curr - 1) / interval)
             else:
                 raise ValueError
 
-            layers.append(MSDNLayer(nIn, args.growthRate, args, inScales, outScales))
-            print('|\t\tinScales {} outScales {} inChannels {} outChannels {}\t\t|'.format(inScales, outScales, nIn, args.growthRate))
+            layers.append(MSDLayer(nIn, args.growthRate,
+                                   args, inScales, outScales))
+            print('|\t\tinScales {} outScales {} inChannels {} outChannels {}\t\t|'.format(
+                inScales, outScales, nIn, args.growthRate))
 
             nIn += args.growthRate
             if args.prune == 'max' and inScales > outScales and \
@@ -293,7 +350,8 @@ class MSDNet(nn.Module):
                                            outScales, offset, args))
                 _t = nIn
                 nIn = math.floor(1.0 * args.reduction * nIn)
-                print('|\t\tTransition layer inserted! (max), inChannels {}, outChannels {}\t|'.format(_t, math.floor(1.0 * args.reduction * _t)))
+                print('|\t\tTransition layer inserted! (max), inChannels {}, outChannels {}\t|'.format(
+                    _t, math.floor(1.0 * args.reduction * _t)))
             elif args.prune == 'min' and args.reduction > 0 and \
                     ((n_layer_curr == math.floor(1.0 * n_layer_all / 3)) or
                      n_layer_curr == math.floor(2.0 * n_layer_all / 3)):
@@ -319,7 +377,8 @@ class MSDNet(nn.Module):
         interChannels1, interChannels2 = 128, 128
         conv = nn.Sequential(
             ConvBasic(nIn, interChannels1, kernel=3, stride=2, padding=1),
-            ConvBasic(interChannels1, interChannels2, kernel=3, stride=2, padding=1),
+            ConvBasic(interChannels1, interChannels2,
+                      kernel=3, stride=2, padding=1),
             nn.AvgPool2d(2),
         )
         return ClassifierModule(conv, interChannels2, num_classes)
@@ -338,4 +397,3 @@ class MSDNet(nn.Module):
             x = self.blocks[i](x)
             res.append(self.classifier[i](x))
         return res
-

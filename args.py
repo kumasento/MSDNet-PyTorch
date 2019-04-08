@@ -6,7 +6,7 @@ import argparse
 model_names = ['msdnet']
 
 arg_parser = argparse.ArgumentParser(
-                description='Image classification PK main script')
+    description='Image classification PK main script')
 
 exp_group = arg_parser.add_argument_group('exp', 'experiment setting')
 exp_group.add_argument('--save', default='save/default-{}'.format(time.time()),
@@ -51,13 +51,17 @@ arch_group.add_argument('--reduction', default=0.5, type=float,
                         ' (1 means dot\'t use compression) (default: 0.5)')
 
 # msdnet config
-arch_group.add_argument('--nBlocks', type=int, default=1)
-arch_group.add_argument('--nChannels', type=int, default=32)
-arch_group.add_argument('--base', type=int,default=4)
+arch_group.add_argument('--nBlocks', type=int, default=1,
+                        help='Number of blocks/classifiers')
+arch_group.add_argument('--nChannels', type=int, default=32,
+                        help='Number of output channels of the very first Convolution layer (default: 32)')
+arch_group.add_argument('--base', type=int, default=4,
+                        help='The layer to attach the first classifier')
 arch_group.add_argument('--stepmode', type=str, choices=['even', 'lin_grow'])
 arch_group.add_argument('--step', type=int, default=1)
 arch_group.add_argument('--growthRate', type=int, default=6)
-arch_group.add_argument('--grFactor', default='1-2-4', type=str)
+arch_group.add_argument('--grFactor', default='1-2-4',
+                        type=str, help='growth rate factor of each sacle')
 arch_group.add_argument('--prune', default='max', choices=['min', 'max'])
 arch_group.add_argument('--bnFactor', default='1-2-4')
 arch_group.add_argument('--bottleneck', default=True, type=bool)
@@ -80,8 +84,8 @@ optim_group.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                          metavar='LR',
                          help='initial learning rate (default: 0.1)')
 optim_group.add_argument('--lr-type', default='multistep', type=str, metavar='T',
-                        help='learning rate strategy (default: multistep)',
-                        choices=['cosine', 'multistep'])
+                         help='learning rate strategy (default: multistep)',
+                         choices=['cosine', 'multistep'])
 optim_group.add_argument('--decay-rate', default=0.1, type=float, metavar='N',
                          help='decay rate of learning rate (default: 0.1)')
 optim_group.add_argument('--momentum', default=0.9, type=float, metavar='M',
